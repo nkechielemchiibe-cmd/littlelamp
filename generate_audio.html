@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>LittleLamp Audio Generator</title>
+<style>
+body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background: #f5f5f5; }
+h1 { color: #2d6a4f; }
+.progress { background: #ddd; border-radius: 8px; height: 24px; margin: 20px 0; }
+.progress-bar { background: #2d6a4f; height: 24px; border-radius: 8px; transition: width 0.3s; width: 0%; }
+.log { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 16px; height: 300px; overflow-y: auto; font-size: 12px; font-family: monospace; }
+button { background: #2d6a4f; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; margin: 8px 4px; }
+button:disabled { opacity: 0.5; cursor: default; }
+.stats { background: white; border-radius: 8px; padding: 16px; margin: 16px 0; }
+input { padding: 8px; width: 400px; border: 1px solid #ddd; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>🎙 LittleLamp Audio Generator</h1>
+<p>This tool generates all 200 audio files (100 story narrations + 100 prayers) using ElevenLabs.</p>
+
+<div class="stats">
+  <label><strong>ElevenLabs API Key:</strong><br>
+  <input type="text" id="apiKey" value="sk_6272126d146e52c3f2e6a260bd797e84f70380fd5f29815d" /></label><br><br>
+  <label><strong>Voice ID:</strong><br>
+  <input type="text" id="voiceId" value="wScwPA1qCkWo5R2dmlS8" /></label>
+</div>
+
+<div class="stats" id="statsBox">
+  <strong>Status:</strong> Ready to generate<br>
+  <strong>Progress:</strong> <span id="progressText">0 / 200</span><br>
+  <strong>Estimated cost:</strong> ~$13-15
+</div>
+
+<div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+
+<button id="startBtn" onclick="startGeneration()">▶ Start Generating All Audio</button>
+<button id="stopBtn" onclick="stopGeneration()" disabled>⏹ Stop</button>
+
+<div class="log" id="log"></div>
+
+<script>
+const EL_KEY = () => document.getElementById('apiKey').value.trim();
+const VOICE_ID = () => document.getElementById('voiceId').value.trim();
+
+let stopped = false;
+let generated = 0;
+
+function log(msg) {
+  const el = document.getElementById('log');
+  el.innerHTML += msg + '<br>';
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateProgress(done, total) {
+  const pct = (done / total * 100).toFixed(1);
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('progressText').textContent = done + ' / ' + total;
+}
+
+async function generateAudio(text, filename) {
+  const resp = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + VOICE_ID() + '/stream', {
+    method: 'POST',
+    headers: { 'xi-api-key': EL_KEY(), 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+    body: JSON.stringify({
+      text: text,
+      model_id: 'eleven_turbo_v2',
+      voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+    })
+  });
+  if (!resp.ok) throw new Error('API error ' + resp.status);
+  const blob = await resp.blob();
+  
+  // Auto download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  
+  // Small delay to avoid overwhelming browser downloads
+  await new Promise(r => setTimeout(r, 800));
+}
+
+function stripHtml(html) {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+async function startGeneration() {
+  stopped = false;
+  generated = 0;
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  
+  const total = 200;
+  log('Starting audio generation for 100 stories + 100 prayers...');
+  log('Files will download automatically to your Downloads folder.');
+  log('---');
+
+  for (let sid = 1; sid <= 100; sid++) {
+    if (stopped) { log('STOPPED by user.'); break; }
+    
+    const story = STORIES.find(s => s.id === sid);
+    if (!story) { log('Story ' + sid + ' not found, skipping.'); continue; }
+    
+    // Generate story narration
+    try {
+      const allText = story.scenes.map(sc => sc.label + '. ' + stripHtml(sc.text)).join(' ');
+      const storyFilename = 'audio_s' + String(sid).padStart(3,'0') + '_story.mp3';
+      log('Generating story ' + sid + ': ' + story.title + '...');
+      await generateAudio(allText, storyFilename);
+      generated++;
+      updateProgress(generated, total);
+      log('✅ ' + storyFilename + ' done');
+    } catch(e) {
+      log('❌ Story ' + sid + ' FAILED: ' + e.message);
+    }
+
+    if (stopped) break;
+
+    // Generate prayer
+    try {
+      const prayerFilename = 'audio_s' + String(sid).padStart(3,'0') + '_prayer.mp3';
+      log('Generating prayer ' + sid + '...');
+      await generateAudio(story.prayer, prayerFilename);
+      generated++;
+      updateProgress(generated, total);
+      log('✅ ' + prayerFilename + ' done');
+    } catch(e) {
+      log('❌ Prayer ' + sid + ' FAILED: ' + e.message);
+    }
+  }
+  
+  log('---');
+  log('COMPLETE! Generated ' + generated + ' / ' + total + ' files.');
+  log('Now upload all audio_*.mp3 files to your Bunny storage zone.');
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+}
+
+function stopGeneration() {
+  stopped = true;
+  document.getElementById('stopBtn').disabled = true;
+}
+</script>
+
+<!-- STORIES DATA PLACEHOLDER - will be injected -->
+<script>
+;
+</script>
+
+</body>
+</html>
